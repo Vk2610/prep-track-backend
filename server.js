@@ -23,10 +23,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' })); // URL-encoded d
 // Data sanitization against NoSQL query injection
 app.use(mongoSanitize());
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // CORS configuration
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    credentials: true
+    credentials: true,
 }));
 
 // Apply rate limiting to all routes
