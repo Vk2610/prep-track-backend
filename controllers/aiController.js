@@ -12,58 +12,73 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  * @access  Private
  */
 exports.getAiResponse = asyncHandler(async (req, res) => {
-    const { message, chatHistory } = req.body;
-    const userId = req.user._id;
+    try {
+        const { message, chatHistory } = req.body;
+        const userId = req.user._id;
 
-    if (!message) {
-        return res.status(400).json({
-            success: false,
-            message: 'Please provide a message'
-        });
-    }
+        if (!message) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide a message'
+            });
+        }
 
-    // Fetch latest user data for context
-    const [latestMocks, recentActivity] = await Promise.all([
-        MockTracker.find({ userId }).sort({ date: -1 }).limit(3),
-        DailyTracker.find({ userId }).sort({ date: -1 }).limit(5)
-    ]);
+        // Check for API Key presence
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error('GEMINI_API_KEY is missing in server environment variables');
+        }
 
-    // Format context for the AI
-    let context = "User Context:\n";
-    if (latestMocks.length > 0) {
-        context += "- Latest Mock Scores:\n";
-        latestMocks.forEach(m => {
-            context += `  * Date: ${new Date(m.date).toLocaleDateString()}, Total: ${m.total}, Percentile: ${m.percentile}%, VARC: ${m.scores.varc}, LRDI: ${m.scores.lrdi}, QA: ${m.scores.qa}\n`;
-        });
-    } else {
-        context += "- No mock data logged yet.\n";
-    }
+        // Fetch latest user data for context
+        const [latestMocks, recentActivity] = await Promise.all([
+            MockTracker.find({ userId }).sort({ date: -1 }).limit(3),
+            DailyTracker.find({ userId }).sort({ date: -1 }).limit(5)
+        ]);
 
-    if (recentActivity.length > 0) {
-        context += "- Recent Prep Activity:\n";
-        recentActivity.forEach(a => {
-            context += `  * Date: ${new Date(a.date).toLocaleDateString()}, Subjects: ${a.subjects.join(', ')}, Mood: ${a.mood}\n`;
-        });
-    }
+        // Format context for the AI
+        let context = "User Context:\n";
+        if (latestMocks && latestMocks.length > 0) {
+            context += "- Latest Mock Scores:\n";
+            latestMocks.forEach(m => {
+                const s = m.scores || {};
+                context += `  * Date: ${new Date(m.date).toLocaleDateString()}, Total: ${m.total || 0}, Percentile: ${m.percentile || 0}%, VARC: ${s.varc || 0}, LRDI: ${s.lrdi || 0}, QA: ${s.qa || 0}\n`;
+            });
+        } else {
+            context += "- No mock data logged yet.\n";
+        }
 
-    // System instruction for Gemini 1.5
-    const systemInstruction = `You are PrepTrack AI, a specialized mentor for students preparing for the CAT (Common Admission Test) and other MBA entrance exams. 
+        if (recentActivity && recentActivity.length > 0) {
+            context += "- Recent Prep Activity:\n";
+            recentActivity.forEach(a => {
+                const completedTasks = [];
+                if (a.quant) completedTasks.push('Quant');
+                if (a.lrdi) completedTasks.push('LRDI');
+                if (a.varc) completedTasks.push('VARC');
+                if (a.softSkill) completedTasks.push('Soft Skills');
+                if (a.exercise) completedTasks.push('Exercise');
+                if (a.gaming) completedTasks.push('Gaming');
+
+                const tasksString = completedTasks.length > 0 ? completedTasks.join(', ') : 'No tasks logged';
+                context += `  * Date: ${new Date(a.date).toLocaleDateString()}, Tasks: ${tasksString}, Mood: ${a.mood || 'Not set'}\n`;
+            });
+        }
+
+        // System instruction for Gemini 1.5
+        const systemInstruction = `You are PrepTrack AI, a specialized mentor for students preparing for the CAT (Common Admission Test) and other MBA entrance exams. 
 Your goal is to provide strategic advice, performance analysis, and motivation.
 Use the provided User Context to give personalized recommendations. 
 Be encouraging, professional, and concise. 
 If the user hasn't logged enough data, suggest they use the trackers more consistently.
 Keep formatting clean with bullet points where necessary.`;
 
-    try {
         const model = genAI.getGenerativeModel({
-            model: "gemini-flash-latest",
+            model: "gemini-1.5-flash",
             systemInstruction: systemInstruction
         });
 
         // Format history for Gemini
         const history = (chatHistory || []).map(msg => ({
             role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }],
+            parts: [{ text: msg.content || "" }],
         }));
 
         const chat = model.startChat({
@@ -85,10 +100,10 @@ Keep formatting clean with bullet points where necessary.`;
             data: text
         });
     } catch (error) {
-        console.error('Gemini API Error:', error);
+        console.error('❌ AI Mentor Error:', error);
         res.status(500).json({
             success: false,
-            message: 'AI Mentor is currently unavailable. Please try again later.'
+            message: `AI Error: ${error.message || 'Unknown error'}`
         });
     }
 });

@@ -13,6 +13,10 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
+// Initialize Daily Reminder Job
+const initReminderJob = require('./utils/reminderJob');
+initReminderJob();
+
 // Security Middleware
 app.use(helmet()); // Set security HTTP headers
 
@@ -71,6 +75,7 @@ app.use('/api/analysis', require('./routes/mockAnalysisRoutes'));
 app.use('/api/softskills', require('./routes/softSkillsRoutes'));
 app.use('/api/insights', require('./routes/insightsRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
+app.use('/api/notifications', require('./routes/notificationRoutes'));
 
 // 404 handler
 app.use((req, res) => {
